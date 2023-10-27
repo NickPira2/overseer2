@@ -1,3 +1,11 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +20,9 @@
 #define CONNECTIONS_FILE "connections.txt"
 #define ELEVATOR_CONTROLLER_IP "127.0.0.1"
 #define ELEVATOR_CONTROLLER_PORT 5000
+#define MAX_TEMPERATURE_SENSORS 10
+
+
 
 struct component {
     char type[256];
@@ -20,6 +31,15 @@ struct component {
     char port[256];
     char mode[256];
 };
+
+
+struct temperature_sensor {
+    int id;
+    float value;
+};
+
+struct temperature_sensor temperature_sensors[MAX_TEMPERATURE_SENSORS];
+
 
 struct component components[MAX_COMPONENTS];
 int num_components = 0;
