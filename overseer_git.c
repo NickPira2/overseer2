@@ -26,7 +26,7 @@
 #define MAX_TEMPERATURE_SENSORS 10
 #define NUM_DOORS 10
 #define MAX_CONNECTIONS 10
-
+#define MAX_CODE_LENGTH 20
 
 
 struct component {
@@ -259,19 +259,34 @@ char* get_access_code(int door_id) {
     return NULL;
 }
 
-int check_authorisation(char* code, int door_id) {
-    // Check if the code matches the door's access code
-    char* access_code = get_access_code(door_id);
-    if (strcmp(code, access_code) == 0) {
-        return 1;
+int check_authorisation(char* code, char* auth_file) {
+    // Open the authorization file for reading
+    FILE* fp = fopen(auth_file, "r");
+    if (fp == NULL) {
+        perror("fopen");
+        return 0;
     }
 
-    // Check if the code matches the master access code
-    if (strcmp(code, MASTER_ACCESS_CODE) == 0) {
-        return 1;
+    // Read the authorization codes from the file
+    char codes[10][MAX_CODE_LENGTH];
+    int num_codes = 0;
+    while (fgets(codes[num_codes], MAX_CODE_LENGTH, fp) != NULL) {
+        // Remove the newline character from the end of the code
+        codes[num_codes][strcspn(codes[num_codes], "\n")] = '\0';
+        num_codes++;
     }
 
-    // If neither match, return 0
+    // Close the authorization file
+    fclose(fp);
+
+    // Check if the code matches any of the authorization codes
+    for (int i = 0; i < num_codes; i++) {
+        if (strcmp(code, codes[i]) == 0) {
+            return 1;
+        }
+    }
+
+    // If the code does not match any of the authorization codes, return 0
     return 0;
 }
 
@@ -374,7 +389,7 @@ void* tcp_thread(void* arg) {
         }
 
         // Wait for door to close
-        usleep(door_open_duration);
+        usleep(10);
 
         // Send CLOSE message to door controller
         const char* close_message = "CLOSE#";
@@ -427,11 +442,6 @@ void* udp_thread(void* arg) {
 
     return NULL;
 }
-
-
-
-
-
 
 
 
