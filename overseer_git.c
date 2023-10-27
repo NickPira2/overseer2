@@ -13,6 +13,9 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #define MAX_COMPONENTS 100
 #define MAX_FLOORS 10
@@ -21,6 +24,8 @@
 #define ELEVATOR_CONTROLLER_IP "127.0.0.1"
 #define ELEVATOR_CONTROLLER_PORT 5000
 #define MAX_TEMPERATURE_SENSORS 10
+#define NUM_DOORS 10
+#define MAX_CONNECTIONS 10
 
 
 
@@ -36,6 +41,18 @@ struct component {
 struct temperature_sensor {
     int id;
     float value;
+    char timestamp[20];
+};
+
+struct connection {
+    int id;
+    int door_id;
+};
+
+struct connection connections[MAX_CONNECTIONS] = {
+    {1, 2},
+    {2, 3},
+    // ...
 };
 
 struct temperature_sensor temperature_sensors[MAX_TEMPERATURE_SENSORS];
@@ -99,6 +116,14 @@ void send_elevator_request(int id, const char* request) {
     close(sock);
 }
 
+int lookup_connection(int id, int door_id) {
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        if (connections[i].id == id && connections[i].door_id == door_id) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 void* elevator_control(void* arg) {
     int sock = *(int*)arg;
@@ -192,6 +217,71 @@ void* elevator_control(void* arg) {
     return NULL;
 }
 
+
+int connect_to_door(int door_id) {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        perror("socket");
+        return -1;
+    }
+
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(8080 + door_id);
+    inet_aton("127.0.0.1", &addr.sin_addr);
+
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("connect");
+        return -1;
+    }
+
+    return sock;
+}
+
+
+struct door {
+    int id;
+    char access_code[20];
+};
+
+struct door doors[NUM_DOORS] = {
+    {1, "1234"},
+    {2, "5678"},
+    // ...
+};
+
+char* get_access_code(int door_id) {
+    for (int i = 0; i < NUM_DOORS; i++) {
+        if (doors[i].id == door_id) {
+            return doors[i].access_code;
+        }
+    }
+    return NULL;
+}
+
+int check_authorisation(char* code, int door_id) {
+    // Check if the code matches the door's access code
+    char* access_code = get_access_code(door_id);
+    if (strcmp(code, access_code) == 0) {
+        return 1;
+    }
+
+    // Check if the code matches the master access code
+    if (strcmp(code, MASTER_ACCESS_CODE) == 0) {
+        return 1;
+    }
+
+    // If neither match, return 0
+    return 0;
+}
+
+void us_sleep(unsigned int microseconds) {
+    struct timespec ts;
+    ts.tv_sec = microseconds / 1000000;
+    ts.tv_nsec = (microseconds % 1000000) * 1000;
+    nanosleep(&ts, NULL);
+}
+
 void* tcp_thread(void* arg) {
     int server_sock = *(int*)arg;
     struct sockaddr_in client_addr;
@@ -205,7 +295,7 @@ void* tcp_thread(void* arg) {
         }
 
         // Receive message from client
-        char message[256];
+        char *message;
         if (recv(client_sock, message, sizeof(message), 0) <= 0) {
             perror("recv");
             close(client_sock);
@@ -213,7 +303,7 @@ void* tcp_thread(void* arg) {
         }
 
         // Parse message
-        char type[256], id[256], code[256];
+        char *type, *id, *code;
         if (sscanf(message, "%s %s %s", type, id, code) != 3) {
             fprintf(stderr, "Invalid message: %s\n", message);
             close(client_sock);
@@ -228,7 +318,7 @@ void* tcp_thread(void* arg) {
         }
 
         // Look up card reader ID in connections file
-        char door_id[256];
+        char *door_id;
         if (!lookup_connection(id, door_id)) {
             fprintf(stderr, "Unknown card reader ID: %s\n", id);
             close(client_sock);
